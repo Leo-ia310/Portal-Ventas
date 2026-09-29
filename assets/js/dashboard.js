@@ -1,12 +1,5 @@
 import { emptyState, escapeHtml, leadBadge, money, niceDate } from "./utils.js";
 
-const quickLinks = [
-  ["precios", "Precios"],
-  ["scripts", "Guiones"],
-  ["training", "Manual de ventas"],
-  ["ventas", "Proceso de cierre"],
-];
-
 export async function renderDashboard(container, state, navigate) {
   const { client, isAdmin, agent } = state;
   if (isAdmin) {
@@ -32,8 +25,11 @@ export async function renderDashboard(container, state, navigate) {
   const overdue = leads.filter((lead) => lead.next_follow_up_at && new Date(lead.next_follow_up_at) < today && !["Ganado", "Perdido"].includes(lead.status)).length;
   const proposals = leads.filter((lead) => lead.status === "Propuesta enviada").length;
   const won = leads.filter((lead) => lead.status === "Ganado" && lead.payment_confirmed).length;
-  const estimatedCommission = commissions
-    .filter((commission) => commission.status !== "anulada")
+  const generatedCommission = commissions
+    .filter((commission) => !["anulada"].includes(commission.status))
+    .reduce((sum, commission) => sum + Number(commission.commission_amount || 0), 0);
+  const receivableCommission = commissions
+    .filter((commission) => ["estimada", "aprobada"].includes(commission.status))
     .reduce((sum, commission) => sum + Number(commission.commission_amount || 0), 0);
 
   container.innerHTML = `
@@ -41,7 +37,7 @@ export async function renderDashboard(container, state, navigate) {
       ${metric("Leads asignados", leads.length)}
       ${metric("Contactos pendientes", pending)}
       ${metric("Seguimientos vencidos", overdue)}
-      ${metric("Comisiones estimadas", money(estimatedCommission))}
+      ${metric("Por cobrar", money(receivableCommission))}
     </section>
 
     <section class="grid two">
@@ -53,22 +49,28 @@ export async function renderDashboard(container, state, navigate) {
         </div>
       </article>
       <article class="card">
-        <h2>Accesos rápidos</h2>
-        <div class="actions">
-          ${quickLinks.map(([route, label]) => `<button class="button" data-quick-route="${route}" type="button">${label}</button>`).join("")}
+        <h2>Comisiones generadas</h2>
+        <div class="metric">
+          <span>Total histórico activo</span>
+          <strong>${money(generatedCommission)}</strong>
         </div>
       </article>
     </section>
 
     <section class="grid two">
       <article class="card">
-        <h2>Próximos seguimientos</h2>
-        ${renderUpcoming(leads)}
+        <h2>Distribución de leads</h2>
+        ${renderPieChart(groupCounts(leads, "status"), ["#7B3FE4", "#9B6CFF", "#6EE7B7", "#FFD166", "#FF8A65"])}
       </article>
       <article class="card">
-        <h2>Perfil del agente</h2>
-        ${renderAgentProfile(agent, state.profile)}
+        <h2>Estado de comisiones</h2>
+        ${renderPieChart(groupCounts(commissions, "status"), ["#7B3FE4", "#9B6CFF", "#6EE7B7", "#FFD166"])}
       </article>
+    </section>
+
+    <section class="card">
+      <h2>Próximos seguimientos</h2>
+      ${renderUpcoming(leads)}
     </section>
 
     <section class="card">
@@ -76,10 +78,6 @@ export async function renderDashboard(container, state, navigate) {
       ${reports.length ? renderReportList(reports) : emptyState("Todavía no has registrado reportes.")}
     </section>
   `;
-
-  container.querySelectorAll("[data-quick-route]").forEach((button) => {
-    button.addEventListener("click", () => navigate(button.dataset.quickRoute));
-  });
 }
 
 function metric(label, value) {
@@ -105,20 +103,42 @@ function renderUpcoming(leads) {
     .join("")}</ul>`;
 }
 
-function renderAgentProfile(agent, profile) {
-  const sensitive = agent.internal_notes ? `<p class="muted">Las notas internas sensibles solo son visibles para admin.</p>` : "";
+function groupCounts(items, key) {
+  return items.reduce((acc, item) => {
+    const label = item[key] || "Sin dato";
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function renderPieChart(counts, colors) {
+  const entries = Object.entries(counts).filter(([, count]) => count > 0);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  if (!total) return emptyState("Aún no hay datos para graficar.");
+
+  let cursor = 0;
+  const slices = entries.map(([label, count], index) => {
+    const start = cursor;
+    const end = cursor + (count / total) * 100;
+    cursor = end;
+    return `${colors[index % colors.length]} ${start}% ${end}%`;
+  });
+
   return `
-    <div class="grid two">
-      <p><strong>Nombre</strong><br />${escapeHtml(profile?.full_name || "Pendiente")}</p>
-      <p><strong>País</strong><br />${escapeHtml(agent.country || "Pendiente")}</p>
-      <p><strong>WhatsApp</strong><br />${escapeHtml(agent.whatsapp || agent.phone || "Pendiente")}</p>
-      <p><strong>Disponibilidad</strong><br />${escapeHtml(agent.availability || "Pendiente")}</p>
-      <p><strong>Estado</strong><br /><span class="badge">${escapeHtml(agent.status || "capacitación")}</span></p>
-      <p><strong>Modalidad</strong><br />${escapeHtml(agent.compensation_mode || "comisión")}</p>
-      <p><strong>Fecha de ingreso</strong><br />${niceDate(agent.start_date)}</p>
-      <p><strong>Comisión</strong><br />${Number(agent.commission_rate || 0) * 100}%</p>
+    <div class="chart-card">
+      <div class="pie-chart" style="background: conic-gradient(${slices.join(", ")});"></div>
+      <div class="legend">
+        ${entries
+          .map(
+            ([label, count], index) => `
+              <div class="legend-item">
+                <span><i class="swatch" style="background:${colors[index % colors.length]}"></i>${escapeHtml(label)}</span>
+                <strong>${count}</strong>
+              </div>`,
+          )
+          .join("")}
+      </div>
     </div>
-    ${sensitive}
   `;
 }
 

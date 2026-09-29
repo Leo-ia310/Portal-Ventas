@@ -1,134 +1,104 @@
-import { commissionBadge, COMMISSION_STATUSES, emptyState, escapeHtml, money, niceDate, optionList, serializeForm, showMessage } from "./utils.js";
+import { commissionBadge, emptyState, escapeHtml, money, niceDate } from "./utils.js";
 
 export async function renderCommissions(container, state) {
-  const [{ data: commissions = [] }, { data: leads = [] }, { data: agents = [] }] = await Promise.all([
-    state.client
-      .from("commissions")
-      .select("*, leads!commissions_lead_id_fkey(business_name), agents!commissions_agent_id_fkey(id, profiles!agents_user_id_fkey(full_name,email))")
-      .order("created_at", { ascending: false }),
-    state.client.from("leads").select("id, business_name, assigned_agent_id, payment_confirmed, status").order("business_name"),
-    state.client.from("agents").select("id, commission_rate, profiles!agents_user_id_fkey(full_name,email)").order("created_at"),
-  ]);
+  const { data: commissions = [], error } = await state.client
+    .from("commissions")
+    .select(
+      "*, leads!commissions_lead_id_fkey(business_name, agreed_amount, final_sale_amount, price_adjustment_note, payment_status), agents!commissions_agent_id_fkey(id, profiles!agents_user_id_fkey(full_name,email))",
+    )
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const receivable = commissions.filter((commission) => ["estimada", "aprobada"].includes(commission.status));
+  const generated = commissions.filter((commission) => commission.status !== "anulada");
+  const paid = commissions.filter((commission) => commission.status === "pagada");
 
   container.innerHTML = `
-    ${
-      state.isAdmin
-        ? `<section class="form-panel">
-            <h2>Registrar comisión</h2>
-            <form id="commission-form" class="form-grid">
-              <label>Lead
-                <select name="lead_id" required>${leads.map((lead) => `<option value="${lead.id}">${escapeHtml(lead.business_name)}</option>`).join("")}</select>
-              </label>
-              <label>Agente
-                <select name="agent_id" required>${agents
-                  .map((agent) => `<option value="${agent.id}" data-rate="${agent.commission_rate || 0.3}">${escapeHtml(agent.profiles?.full_name || agent.id)}</option>`)
-                  .join("")}</select>
-              </label>
-              <label>Monto de venta
-                <input name="sale_amount" type="number" step="0.01" min="0" required />
-              </label>
-              <label>Porcentaje
-                <input name="commission_rate" type="number" step="0.01" min="0" max="1" value="0.30" required />
-              </label>
-              <label>Monto comisión
-                <input name="commission_amount" type="number" step="0.01" min="0" readonly />
-              </label>
-              <label>Estado
-                <select name="status">${optionList(COMMISSION_STATUSES, "estimada")}</select>
-              </label>
-              <label>Fecha de cierre
-                <input name="closed_at" type="date" />
-              </label>
-              <label>Fecha de pago
-                <input name="paid_at" type="date" />
-              </label>
-              <label class="wide">Notas
-                <textarea name="notes"></textarea>
-              </label>
-              <div class="full actions">
-                <button class="button primary" type="submit">Guardar comisión</button>
-                <p id="commission-message" class="form-message"></p>
-              </div>
-            </form>
-          </section>`
-        : ""
-    }
+    <section class="grid three">
+      ${metric("Comisiones por cobrar", money(sumCommissions(receivable)))}
+      ${metric("Comisiones generadas", money(sumCommissions(generated)))}
+      ${metric("Pagos recibidos", money(sumCommissions(paid)))}
+    </section>
 
     <section class="card">
-      <h2>Reglas de comisión</h2>
+      <h2>Flujo de comisión</h2>
       <ul class="list">
-        <li>La comisión se calcula sobre ventas cerradas y pagadas.</li>
-        <li>Una conversación o lead interesado no genera comisión.</li>
-        <li>Si el cliente no paga, no se genera comisión.</li>
-        <li>Si hay reembolso total, la comisión no aplica; si es parcial, puede ajustarse proporcionalmente.</li>
-        <li>Cualquier base, bono o cambio debe quedar por escrito.</li>
-        <li>Sergio inicia con 30% por venta cerrada y pagada. La base de $200 + 20% es posibilidad futura, no promesa.</li>
+        <li>El agente registra y trabaja el lead.</li>
+        <li>El lead entra a reunión y se define un monto acordado.</li>
+        <li>Solo admin marca el sub tag <strong>pagado</strong>, registra monto final y aprueba el pago.</li>
+        <li>La comisión se genera automáticamente sobre el monto final pagado.</li>
+        <li>Cuando admin confirma que ya pagó al agente, pasa al log de pagos recibidos.</li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>Comisiones</h2>
-      ${renderCommissionTable(commissions)}
+      <h2>Por cobrar</h2>
+      ${renderCommissionTable(receivable, state, true)}
+    </section>
+
+    <section class="card">
+      <h2>Log de pagos recibidos</h2>
+      ${renderCommissionTable(paid, state, false)}
     </section>
   `;
 
-  const form = container.querySelector("#commission-form");
-  if (form) bindCommissionForm(form, state, container);
-}
-
-function bindCommissionForm(form, state, container) {
-  const sale = form.elements.sale_amount;
-  const rate = form.elements.commission_rate;
-  const amount = form.elements.commission_amount;
-  const message = form.querySelector("#commission-message");
-  const updateAmount = () => {
-    amount.value = (Number(sale.value || 0) * Number(rate.value || 0)).toFixed(2);
-  };
-  sale.addEventListener("input", updateAmount);
-  rate.addEventListener("input", updateAmount);
-  form.elements.agent_id.addEventListener("change", () => {
-    const selected = form.elements.agent_id.selectedOptions[0];
-    rate.value = selected.dataset.rate || "0.30";
-    updateAmount();
-  });
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const values = serializeForm(form);
-    const payload = {
-      ...values,
-      sale_amount: Number(values.sale_amount),
-      commission_rate: Number(values.commission_rate),
-      commission_amount: Number(values.commission_amount),
-      closed_at: values.closed_at || null,
-      paid_at: values.paid_at || null,
-    };
-    const { error } = await state.client.from("commissions").insert(payload);
-    if (error) {
-      showMessage(message, error.message, "error");
-      return;
-    }
-    showMessage(message, "Comisión registrada.", "success");
-    await renderCommissions(container, state);
+  container.querySelectorAll("[data-mark-commission-paid]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { error: updateError } = await state.client
+        .from("commissions")
+        .update({ status: "pagada", paid_at: new Date().toISOString().slice(0, 10), paid_by: state.user.id })
+        .eq("id", button.dataset.markCommissionPaid);
+      if (updateError) throw updateError;
+      await renderCommissions(container, state);
+    });
   });
 }
 
-function renderCommissionTable(commissions) {
-  if (!commissions.length) return emptyState("No hay comisiones registradas.");
+function metric(label, value) {
+  return `<article class="card metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`;
+}
+
+function sumCommissions(commissions) {
+  return commissions.reduce((sum, commission) => sum + Number(commission.commission_amount || 0), 0);
+}
+
+function renderCommissionTable(commissions, state, canPay) {
+  if (!commissions.length) return emptyState("No hay comisiones en esta sección.");
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Lead</th><th>Agente</th><th>Venta</th><th>Comisión</th><th>Estado</th><th>Fechas</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Lead</th>
+            <th>Agente</th>
+            <th>Monto acordado</th>
+            <th>Monto final</th>
+            <th>Comisión</th>
+            <th>Estado</th>
+            <th>Notas</th>
+            ${state.isAdmin && canPay ? "<th>Acción</th>" : ""}
+          </tr>
+        </thead>
         <tbody>${commissions
           .map(
             (item) => `
           <tr>
-            <td>${escapeHtml(item.leads?.business_name || "Lead")}</td>
+            <td>${escapeHtml(item.leads?.business_name || "Lead")}<br /><span class="badge success">${escapeHtml(
+              item.leads?.payment_status || "pagado",
+            )}</span></td>
             <td>${escapeHtml(item.agents?.profiles?.full_name || "Agente")}</td>
-            <td>${money(item.sale_amount)}</td>
+            <td>${money(item.agreed_amount || item.leads?.agreed_amount || item.sale_amount)}</td>
+            <td>${money(item.sale_amount || item.leads?.final_sale_amount)}</td>
             <td>${money(item.commission_amount)}<br /><span class="muted">${Number(item.commission_rate || 0) * 100}%</span></td>
-            <td>${commissionBadge(item.status)}</td>
-            <td>Cierre: ${niceDate(item.closed_at)}<br />Pago: ${niceDate(item.paid_at)}</td>
+            <td>${commissionBadge(item.status)}<br /><span class="muted">Aprobada: ${niceDate(item.approved_at || item.closed_at)}</span><br /><span class="muted">Pagada: ${niceDate(
+              item.paid_at,
+            )}</span></td>
+            <td>${escapeHtml(item.notes || item.leads?.price_adjustment_note || "")}</td>
+            ${
+              state.isAdmin && canPay
+                ? `<td><button class="button primary" data-mark-commission-paid="${item.id}" type="button">Marcar pagada</button></td>`
+                : ""
+            }
           </tr>`,
           )
           .join("")}</tbody>

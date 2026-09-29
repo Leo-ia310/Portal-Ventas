@@ -66,10 +66,17 @@ create table if not exists public.leads (
   next_action text,
   next_follow_up_at timestamptz,
   last_contact_at timestamptz,
+  meeting_at timestamptz,
   assigned_agent_id uuid references public.agents(id) on delete set null,
   created_by uuid references public.profiles(id) on delete set null,
   notes text,
+  payment_status text not null check (payment_status in ('pendiente', 'pagado', 'parcial', 'reembolsado')) default 'pendiente',
+  agreed_amount numeric(12,2),
+  final_sale_amount numeric(12,2),
+  price_adjustment_note text,
   payment_confirmed boolean not null default false,
+  payment_approved_at timestamptz,
+  payment_approved_by uuid references public.profiles(id) on delete set null,
   won_at timestamptz,
   lost_reason text,
   created_at timestamptz not null default now(),
@@ -106,11 +113,14 @@ create table if not exists public.commissions (
   lead_id uuid references public.leads(id) on delete set null,
   agent_id uuid not null references public.agents(id) on delete cascade,
   sale_amount numeric(12,2) not null check (sale_amount >= 0),
+  agreed_amount numeric(12,2),
   commission_rate numeric(5,4) not null check (commission_rate >= 0 and commission_rate <= 1),
   commission_amount numeric(12,2) not null check (commission_amount >= 0),
   status text not null check (status in ('estimada', 'aprobada', 'pagada', 'anulada')) default 'estimada',
   closed_at date,
+  approved_at timestamptz,
   paid_at date,
+  paid_by uuid references public.profiles(id) on delete set null,
   notes text,
   created_at timestamptz not null default now()
 );
@@ -180,9 +190,11 @@ create index if not exists idx_leads_created_by on public.leads(created_by);
 create index if not exists idx_leads_status on public.leads(status);
 create index if not exists idx_leads_next_follow_up on public.leads(next_follow_up_at);
 create index if not exists idx_leads_source_channel on public.leads(source_channel);
+create index if not exists idx_leads_payment_status on public.leads(payment_status);
 create index if not exists idx_lead_activities_lead on public.lead_activities(lead_id);
 create index if not exists idx_sales_reports_agent_date on public.sales_reports(agent_id, report_date desc);
 create index if not exists idx_commissions_agent on public.commissions(agent_id);
+create unique index if not exists idx_commissions_unique_lead on public.commissions(lead_id) where lead_id is not null;
 create index if not exists idx_training_progress_agent on public.training_progress(agent_id);
 create index if not exists idx_scripts_active on public.scripts(active);
 create index if not exists idx_documents_visible on public.documents(visible_to_agents);
@@ -248,6 +260,36 @@ as $$
     or lead_created_by = auth.uid()
     or lead_assigned_agent_id = public.current_agent_id()
 $$;
+
+create or replace function public.protect_lead_payment_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.is_admin() then
+    return new;
+  end if;
+
+  if new.payment_status is distinct from old.payment_status
+    or new.agreed_amount is distinct from old.agreed_amount
+    or new.final_sale_amount is distinct from old.final_sale_amount
+    or new.price_adjustment_note is distinct from old.price_adjustment_note
+    or new.payment_confirmed is distinct from old.payment_confirmed
+    or new.payment_approved_at is distinct from old.payment_approved_at
+    or new.payment_approved_by is distinct from old.payment_approved_by
+    or new.won_at is distinct from old.won_at then
+    raise exception 'Solo admin puede modificar pagos, montos y comisiones del lead.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_lead_payment_fields on public.leads;
+create trigger protect_lead_payment_fields before update on public.leads
+for each row execute function public.protect_lead_payment_fields();
 
 alter table public.profiles enable row level security;
 alter table public.agents enable row level security;

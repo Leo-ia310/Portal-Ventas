@@ -1,11 +1,12 @@
 import { getAppContext, hasSupabaseConfig, signOut, supabase } from "./supabase.js";
-import { renderDashboard, renderPrices, renderSalesProcess } from "./dashboard.js";
-import { renderLeads } from "./leads.js?v=2";
+import { renderDashboard, renderPrices, renderSalesProcess } from "./dashboard.js?v=3";
+import { renderLeads } from "./leads.js?v=3";
 import { renderAdmin } from "./admin.js";
-import { renderCommissions } from "./commissions.js";
+import { renderCommissions } from "./commissions.js?v=3";
+import { renderBonuses } from "./bonuses.js?v=1";
 import { renderTraining } from "./training.js";
 import { renderScripts } from "./scripts.js";
-import { renderReports } from "./reports.js";
+import { renderReports } from "./reports.js?v=2";
 import { renderDocuments } from "./documents.js";
 
 const app = document.querySelector("#app");
@@ -23,6 +24,7 @@ const routes = {
   training: { title: "Capacitación", kicker: "Ruta del agente", render: renderTraining },
   scripts: { title: "Guiones y mensajes", kicker: "Biblioteca comercial", render: renderScripts },
   commissions: { title: "Comisiones", kicker: "Ventas cerradas y pagadas", render: renderCommissions },
+  bonuses: { title: "Bonos", kicker: "Tramos por ventas pagadas", render: renderBonuses },
   reports: { title: "Reportes", kicker: "Actividad diaria y semanal", render: renderReports },
   documents: { title: "Documentos", kicker: "Recursos comerciales", render: renderDocuments },
   admin: { title: "Panel admin de Maikel", kicker: "Supervisión completa", render: renderAdmin, admin: true },

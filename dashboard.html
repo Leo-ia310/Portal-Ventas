@@ -20,11 +20,15 @@
         <nav class="nav-list">
           <button class="nav-item active" data-route="dashboard" type="button">Dashboard</button>
           <button class="nav-item" data-route="leads" type="button">Leads / CRM</button>
-          <button class="nav-item" data-route="ventas" type="button">Ventas</button>
-          <button class="nav-item" data-route="precios" type="button">Servicios y precios</button>
-          <button class="nav-item" data-route="training" type="button">Capacitación</button>
-          <button class="nav-item" data-route="scripts" type="button">Guiones</button>
+          <div class="nav-group">
+            <span>Centro comercial</span>
+            <button class="nav-item sub" data-route="ventas" type="button">Ventas</button>
+            <button class="nav-item sub" data-route="precios" type="button">Servicios y precios</button>
+            <button class="nav-item sub" data-route="training" type="button">Capacitación</button>
+            <button class="nav-item sub" data-route="scripts" type="button">Guiones</button>
+          </div>
           <button class="nav-item" data-route="commissions" type="button">Comisiones</button>
+          <button class="nav-item" data-route="bonuses" type="button">Bonos</button>
           <button class="nav-item" data-route="reports" type="button">Reportes</button>
           <button class="nav-item" data-route="documents" type="button">Documentos</button>
           <button class="nav-item admin-only" data-route="admin" type="button" hidden>Admin Maikel</button>

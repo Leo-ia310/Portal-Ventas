@@ -4,6 +4,7 @@ import {
   escapeHtml,
   leadBadge,
   LEAD_STATUSES,
+  money,
   niceDate,
   optionList,
   serializeForm,
@@ -16,6 +17,8 @@ let cache = {
   editing: null,
 };
 
+const BOARD_COLUMNS = ["Nuevo", "Contactado", "Interesado", "Llamada agendada", "Propuesta enviada", "Negociación", "Ganado", "Perdido"];
+
 export async function renderLeads(container, state) {
   cache.editing = null;
   await loadData(state);
@@ -23,13 +26,11 @@ export async function renderLeads(container, state) {
 }
 
 async function loadData(state) {
-  const leadQuery = state.client
-    .from("leads")
-    .select("*, agents!leads_assigned_agent_id_fkey(id, profiles!agents_user_id_fkey(full_name,email))")
-    .order("updated_at", { ascending: false });
-
   const [{ data: leads = [], error: leadError }, { data: agents = [], error: agentError }] = await Promise.all([
-    leadQuery,
+    state.client
+      .from("leads")
+      .select("*, agents!leads_assigned_agent_id_fkey(id, commission_rate, profiles!agents_user_id_fkey(full_name,email))")
+      .order("updated_at", { ascending: false }),
     state.client.from("agents").select("id, status, commission_rate, profiles!agents_user_id_fkey(full_name,email)").order("created_at", { ascending: false }),
   ]);
   if (leadError) throw leadError;
@@ -40,20 +41,17 @@ async function loadData(state) {
 
 function paint(container, state) {
   container.innerHTML = `
-    <section class="form-panel">
-      <h2>${cache.editing ? "Editar lead" : "Crear lead"}</h2>
-      <form id="lead-form" class="form-grid">
-        ${leadFormFields(state, cache.editing || {})}
-        <div class="full actions">
-          <button class="button primary" type="submit">${cache.editing ? "Guardar cambios" : "Crear lead"}</button>
-          ${cache.editing ? `<button class="button ghost" data-cancel-edit type="button">Cancelar</button>` : ""}
-          <p id="lead-message" class="form-message"></p>
+    <section class="card">
+      <div class="section-toolbar">
+        <div>
+          <h2>Tablero CRM</h2>
+          <p class="muted">Filtra, revisa y avanza leads sin abrir formularios hasta que sea necesario.</p>
         </div>
-      </form>
+        <button class="button primary" id="open-lead-modal" type="button">Crear lead</button>
+      </div>
     </section>
 
     <section class="card">
-      <h2>Filtros</h2>
       <form id="lead-filters" class="filters">
         <label class="wide">Buscar
           <input name="search" placeholder="Negocio, contacto o WhatsApp" />
@@ -83,15 +81,80 @@ function paint(container, state) {
       </form>
     </section>
 
-    <section id="lead-table">${renderLeadTable(cache.leads, state)}</section>
+    <section id="lead-board">${renderLeadBoard(cache.leads, state)}</section>
   `;
 
-  bindLeadEvents(container, state);
+  container.querySelector("#open-lead-modal").addEventListener("click", () => {
+    cache.editing = null;
+    openLeadModal(container, state);
+  });
+
+  container.querySelector("#lead-filters").addEventListener("input", (event) => {
+    const values = serializeForm(event.currentTarget);
+    container.querySelector("#lead-board").innerHTML = renderLeadBoard(filterLeads(values), state);
+    bindBoardEvents(container, state);
+  });
+
+  bindBoardEvents(container, state);
+}
+
+function openLeadModal(container, state) {
+  const lead = cache.editing || {};
+  const modal = document.createElement("section");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2>${cache.editing ? "Editar lead" : "Crear lead"}</h2>
+        <button class="button ghost" data-close-modal type="button">Cerrar</button>
+      </div>
+      <form id="lead-form" class="form-grid">
+        ${leadFormFields(state, lead)}
+        <div class="full actions">
+          <button class="button primary" type="submit">${cache.editing ? "Guardar cambios" : "Crear lead"}</button>
+          <p id="lead-message" class="form-message"></p>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector("[data-close-modal]").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
+  });
+
+  modal.querySelector("#lead-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = modal.querySelector("#lead-message");
+    const payload = normalizeLeadPayload(serializeForm(event.currentTarget), state);
+
+    if (payload.status === "Ganado" && !payload.payment_confirmed) {
+      showMessage(message, "Solo admin puede marcar un lead como Ganado cuando el pago está aprobado.", "error");
+      return;
+    }
+
+    try {
+      const query = cache.editing
+        ? state.client.from("leads").update(payload).eq("id", cache.editing.id).select().single()
+        : state.client.from("leads").insert(payload).select().single();
+      const { data: savedLead, error } = await query;
+      if (error) throw error;
+      if (state.isAdmin) await ensureCommissionForPaidLead(state, savedLead);
+      showMessage(message, cache.editing ? "Lead actualizado." : "Lead creado.", "success");
+      modal.remove();
+      cache.editing = null;
+      await loadData(state);
+      paint(container, state);
+    } catch (error) {
+      showMessage(message, error.message || "No se pudo guardar el lead.", "error");
+    }
+  });
 }
 
 function leadFormFields(state, lead = {}) {
   lead = lead || {};
   const selectedAgent = lead.assigned_agent_id || state.agent?.id || "";
+  const statuses = state.isAdmin ? LEAD_STATUSES : LEAD_STATUSES.filter((status) => status !== "Ganado");
   return `
     <label>Nombre del negocio
       <input name="business_name" required value="${escapeHtml(lead.business_name || "")}" />
@@ -127,7 +190,10 @@ function leadFormFields(state, lead = {}) {
       <input name="recommended_plan" value="${escapeHtml(lead.recommended_plan || "")}" />
     </label>
     <label>Estado
-      <select name="status">${optionList(LEAD_STATUSES, lead.status || "Nuevo")}</select>
+      <select name="status">${optionList(statuses, lead.status || "Nuevo")}</select>
+    </label>
+    <label>Fecha de reunión
+      <input name="meeting_at" type="datetime-local" value="${dateTimeValue(lead.meeting_at)}" />
     </label>
     <label>Próxima acción
       <input name="next_action" value="${escapeHtml(lead.next_action || "")}" />
@@ -145,15 +211,26 @@ function leadFormFields(state, lead = {}) {
               <option value="">Sin asignar</option>
               ${agentOptions(selectedAgent)}
             </select>
+          </label>
+          <label>Sub tag de pago
+            <select name="payment_status">
+              <option value="pendiente" ${lead.payment_status === "pendiente" || !lead.payment_status ? "selected" : ""}>Pendiente</option>
+              <option value="pagado" ${lead.payment_status === "pagado" ? "selected" : ""}>Pagado</option>
+              <option value="parcial" ${lead.payment_status === "parcial" ? "selected" : ""}>Pago parcial</option>
+              <option value="reembolsado" ${lead.payment_status === "reembolsado" ? "selected" : ""}>Reembolsado</option>
+            </select>
+          </label>
+          <label>Monto acordado en reunión
+            <input name="agreed_amount" type="number" min="0" step="0.01" value="${escapeHtml(lead.agreed_amount || "")}" />
+          </label>
+          <label>Monto final pagado
+            <input name="final_sale_amount" type="number" min="0" step="0.01" value="${escapeHtml(lead.final_sale_amount || "")}" />
+          </label>
+          <label class="wide">Cambio de monto / explicación
+            <textarea name="price_adjustment_note">${escapeHtml(lead.price_adjustment_note || "")}</textarea>
           </label>`
         : `<input name="assigned_agent_id" type="hidden" value="${escapeHtml(selectedAgent)}" />`
     }
-    <label>Pago confirmado
-      <select name="payment_confirmed">
-        <option value="false" ${lead.payment_confirmed ? "" : "selected"}>No</option>
-        <option value="true" ${lead.payment_confirmed ? "selected" : ""}>Sí</option>
-      </select>
-    </label>
     <label class="wide">Problema principal
       <textarea name="main_problem">${escapeHtml(lead.main_problem || "")}</textarea>
     </label>
@@ -175,53 +252,11 @@ function agentOptions(selected = "") {
     .join("");
 }
 
-function bindLeadEvents(container, state) {
-  const message = container.querySelector("#lead-message");
-  container.querySelector("#lead-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const payload = normalizeLeadPayload(serializeForm(form), state);
-
-    if (payload.status === "Ganado" && !payload.payment_confirmed) {
-      showMessage(message, "Un lead solo puede marcarse como Ganado si el pago o anticipo está confirmado.", "error");
-      return;
-    }
-
-    try {
-      const query = cache.editing
-        ? state.client.from("leads").update(payload).eq("id", cache.editing.id)
-        : state.client.from("leads").insert(payload);
-      const { error } = await query;
-      if (error) throw error;
-      showMessage(message, cache.editing ? "Lead actualizado." : "Lead creado.", "success");
-      cache.editing = null;
-      await loadData(state);
-      paint(container, state);
-    } catch (error) {
-      showMessage(message, error.message || "No se pudo guardar el lead.", "error");
-    }
-  });
-
-  container.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
-    cache.editing = null;
-    paint(container, state);
-  });
-
-  container.querySelector("#lead-filters").addEventListener("input", (event) => {
-    const values = serializeForm(event.currentTarget);
-    container.querySelector("#lead-table").innerHTML = renderLeadTable(filterLeads(values), state);
-    bindTableEvents(container, state);
-  });
-
-  bindTableEvents(container, state);
-}
-
-function bindTableEvents(container, state) {
+function bindBoardEvents(container, state) {
   container.querySelectorAll("[data-edit-lead]").forEach((button) => {
     button.addEventListener("click", () => {
       cache.editing = cache.leads.find((lead) => lead.id === button.dataset.editLead);
-      paint(container, state);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      openLeadModal(container, state);
     });
   });
 
@@ -236,24 +271,76 @@ function bindTableEvents(container, state) {
   });
 
   container.querySelectorAll("[data-activity-lead]").forEach((button) => {
-    button.addEventListener("click", () => renderActivityForm(container, state, button.dataset.activityLead));
+    button.addEventListener("click", () => openActivityModal(container, state, button.dataset.activityLead));
   });
 }
 
 function normalizeLeadPayload(values, state) {
+  const isPaid = state.isAdmin && values.payment_status === "pagado" && Number(values.final_sale_amount || 0) > 0;
   const payload = {
-    ...values,
-    status: values.status || "Nuevo",
-    assigned_agent_id: values.assigned_agent_id || state.agent?.id || null,
-    created_by: state.user.id,
-    payment_confirmed: values.payment_confirmed === "true",
+    business_name: values.business_name,
+    contact_name: values.contact_name,
+    country: values.country,
+    city: values.city,
+    source_channel: values.source_channel,
+    whatsapp: values.whatsapp,
+    email: values.email,
+    social_url: values.social_url,
+    requested_service: values.requested_service,
+    main_problem: values.main_problem,
+    estimated_budget: values.estimated_budget,
+    recommended_plan: values.recommended_plan,
+    status: isPaid ? "Ganado" : values.status || "Nuevo",
+    next_action: values.next_action,
     next_follow_up_at: values.next_follow_up_at || null,
     last_contact_at: values.last_contact_at || null,
-    won_at: values.status === "Ganado" && values.payment_confirmed ? new Date().toISOString() : null,
+    meeting_at: values.meeting_at || null,
+    assigned_agent_id: values.assigned_agent_id || state.agent?.id || null,
+    created_by: state.user.id,
+    notes: values.notes,
+    payment_confirmed: isPaid,
+    won_at: isPaid ? cache.editing?.won_at || new Date().toISOString() : null,
+    lost_reason: values.lost_reason,
   };
+
+  if (state.isAdmin) {
+    payload.payment_status = values.payment_status || "pendiente";
+    payload.agreed_amount = values.agreed_amount ? Number(values.agreed_amount) : null;
+    payload.final_sale_amount = values.final_sale_amount ? Number(values.final_sale_amount) : null;
+    payload.price_adjustment_note = values.price_adjustment_note || null;
+    payload.payment_approved_at = isPaid ? cache.editing?.payment_approved_at || new Date().toISOString() : null;
+    payload.payment_approved_by = isPaid ? state.user.id : null;
+  }
 
   if (cache.editing) delete payload.created_by;
   return payload;
+}
+
+async function ensureCommissionForPaidLead(state, lead) {
+  if (!lead.payment_confirmed || lead.payment_status !== "pagado" || !lead.assigned_agent_id || !lead.final_sale_amount) return;
+
+  const agent = cache.agents.find((item) => item.id === lead.assigned_agent_id) || lead.agents;
+  const commissionRate = Number(agent?.commission_rate || 0.3);
+  const saleAmount = Number(lead.final_sale_amount || 0);
+  const payload = {
+    lead_id: lead.id,
+    agent_id: lead.assigned_agent_id,
+    sale_amount: saleAmount,
+    agreed_amount: lead.agreed_amount ? Number(lead.agreed_amount) : saleAmount,
+    commission_rate: commissionRate,
+    commission_amount: saleAmount * commissionRate,
+    status: "aprobada",
+    closed_at: new Date().toISOString().slice(0, 10),
+    approved_at: new Date().toISOString(),
+    notes: lead.price_adjustment_note || "Generada automáticamente al aprobar pago del lead.",
+  };
+
+  const { data: existing } = await state.client.from("commissions").select("id, status, paid_at").eq("lead_id", lead.id).maybeSingle();
+  const query = existing
+    ? state.client.from("commissions").update({ ...payload, status: existing.status === "pagada" ? "pagada" : "aprobada", paid_at: existing.paid_at }).eq("id", existing.id)
+    : state.client.from("commissions").insert(payload);
+  const { error } = await query;
+  if (error) throw error;
 }
 
 function filterLeads(values) {
@@ -269,63 +356,70 @@ function filterLeads(values) {
   });
 }
 
-function renderLeadTable(leads, state) {
+function renderLeadBoard(leads, state) {
   if (!leads.length) return emptyState("No hay leads con estos criterios.");
+  const extraStatuses = leads.map((lead) => lead.status).filter((status) => status && !BOARD_COLUMNS.includes(status));
+  const columns = [...BOARD_COLUMNS, ...new Set(extraStatuses)];
   return `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Negocio</th>
-            <th>Contacto</th>
-            <th>Servicio</th>
-            <th>Estado</th>
-            <th>Seguimiento</th>
-            <th>Agente</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${leads
-            .map(
-              (lead) => `
-              <tr>
-                <td><strong>${escapeHtml(lead.business_name)}</strong><br /><span class="muted">${escapeHtml(lead.country || "")} ${escapeHtml(
-                  lead.city || "",
-                )}</span></td>
-                <td>${escapeHtml(lead.contact_name || "")}<br /><span class="muted">${escapeHtml(lead.whatsapp || lead.email || "")}</span></td>
-                <td>${escapeHtml(lead.requested_service || "")}<br /><span class="muted">${escapeHtml(lead.recommended_plan || "")}</span></td>
-                <td>${leadBadge(lead.status)}</td>
-                <td>${escapeHtml(lead.next_action || "")}<br /><span class="muted">${niceDate(lead.next_follow_up_at)}</span></td>
-                <td>${escapeHtml(lead.agents?.profiles?.full_name || "Sin asignar")}</td>
-                <td>
-                  <div class="actions">
-                    <button class="button" data-edit-lead="${lead.id}" type="button">Editar</button>
-                    <button class="button" data-activity-lead="${lead.id}" type="button">Actividad</button>
-                    ${state.isAdmin ? `<button class="button danger" data-delete-lead="${lead.id}" type="button">Eliminar</button>` : ""}
-                  </div>
-                </td>
-              </tr>`,
-            )
-            .join("")}
-        </tbody>
-      </table>
+    <div class="crm-board">
+      ${columns
+        .map((status) => {
+          const items = leads.filter((lead) => lead.status === status);
+          return `
+            <article class="crm-column">
+              <div class="crm-column-header">
+                <strong>${escapeHtml(status)}</strong>
+                <span class="badge">${items.length}</span>
+              </div>
+              ${items.length ? items.map((lead) => renderLeadCard(lead, state)).join("") : `<p class="muted">Sin leads.</p>`}
+            </article>`;
+        })
+        .join("")}
     </div>
   `;
 }
 
-function renderActivityForm(container, state, leadId) {
+function renderLeadCard(lead, state) {
+  const amountText = lead.final_sale_amount ? money(lead.final_sale_amount) : lead.agreed_amount ? `${money(lead.agreed_amount)} acordado` : "";
+  return `
+    <article class="lead-card">
+      <div class="copy-row">
+        <div>
+          <h3>${escapeHtml(lead.business_name)}</h3>
+          <p>${escapeHtml(lead.contact_name || "Sin contacto")} · ${escapeHtml(lead.whatsapp || lead.email || "Sin contacto directo")}</p>
+        </div>
+        ${leadBadge(lead.status)}
+      </div>
+      <p>${escapeHtml(lead.requested_service || "Servicio por definir")}</p>
+      <p>Reunión: ${niceDate(lead.meeting_at)}</p>
+      <p>Seguimiento: ${niceDate(lead.next_follow_up_at)}</p>
+      ${lead.payment_status ? `<span class="badge ${lead.payment_status === "pagado" ? "success" : "warning"}">${escapeHtml(lead.payment_status)}</span>` : ""}
+      ${amountText ? `<p><strong>${escapeHtml(amountText)}</strong></p>` : ""}
+      <div class="actions">
+        <button class="button" data-edit-lead="${lead.id}" type="button">Editar</button>
+        <button class="button" data-activity-lead="${lead.id}" type="button">Actividad</button>
+        ${state.isAdmin ? `<button class="button danger" data-delete-lead="${lead.id}" type="button">Eliminar</button>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function openActivityModal(container, state, leadId) {
   const lead = cache.leads.find((item) => item.id === leadId);
-  const target = container.querySelector("#lead-table");
-  target.innerHTML = `
-    <section class="form-panel">
-      <h2>Registrar actividad: ${escapeHtml(lead?.business_name || "")}</h2>
+  const modal = document.createElement("section");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2>Registrar actividad: ${escapeHtml(lead?.business_name || "")}</h2>
+        <button class="button ghost" data-close-modal type="button">Cerrar</button>
+      </div>
       <form id="activity-form" class="form-grid">
         <label>Tipo
           <select name="type">
             <option>contacto</option>
             <option>seguimiento</option>
-            <option>llamada</option>
+            <option>reunión</option>
             <option>propuesta</option>
             <option>pago</option>
             <option>nota</option>
@@ -336,33 +430,33 @@ function renderActivityForm(container, state, leadId) {
         </label>
         <div class="full actions">
           <button class="button primary" type="submit">Guardar actividad</button>
-          <button class="button ghost" data-back-table type="button">Volver</button>
           <p id="activity-message" class="form-message"></p>
         </div>
       </form>
-    </section>
+    </div>
   `;
-
-  target.querySelector("[data-back-table]").addEventListener("click", () => {
-    target.innerHTML = renderLeadTable(cache.leads, state);
-    bindTableEvents(container, state);
+  document.body.appendChild(modal);
+  modal.querySelector("[data-close-modal]").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
   });
 
-  target.querySelector("#activity-form").addEventListener("submit", async (event) => {
+  modal.querySelector("#activity-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = serializeForm(event.currentTarget);
     const payload = {
       lead_id: leadId,
-      agent_id: lead.assigned_agent_id || state.agent?.id,
+      agent_id: lead?.assigned_agent_id || state.agent?.id,
       type: values.type,
       notes: values.notes,
     };
     const { error } = await state.client.from("lead_activities").insert(payload);
     if (error) {
-      showMessage(target.querySelector("#activity-message"), error.message, "error");
+      showMessage(modal.querySelector("#activity-message"), error.message, "error");
       return;
     }
-    target.innerHTML = renderLeadTable(cache.leads, state);
-    bindTableEvents(container, state);
+    modal.remove();
+    await loadData(state);
+    paint(container, state);
   });
 }

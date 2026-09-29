@@ -17,6 +17,7 @@ Primera versión funcional del portal interno de MK Dev Studio para agentes de v
 - Panel admin de Maikel con agentes, métricas, embudo, alertas y reportes.
 - Documentos comerciales.
 - SQL completo con tablas, relaciones, índices, triggers y RLS.
+- Migración incremental para flujo de pagos, comisiones automáticas y bonos.
 
 ## Estructura
 
@@ -40,6 +41,7 @@ Primera versión funcional del portal interno de MK Dev Studio para agentes de v
 /assets/js/utils.js
 /supabase/schema.sql
 /supabase/seed.sql
+/supabase/2026-09-29_payment_commissions_bonuses_migration.sql
 /README.md
 ```
 
@@ -87,6 +89,25 @@ values (
   current_date
 );
 ```
+
+## Actualizar una base ya creada
+
+Si ya habías ejecutado el SQL inicial antes de los cambios de pagos/comisiones, ejecuta este archivo en Supabase SQL Editor:
+
+```text
+supabase/2026-09-29_payment_commissions_bonuses_migration.sql
+```
+
+Ese script agrega:
+
+- Fecha de reunión del lead.
+- Sub tag de pago: `pendiente`, `pagado`, `parcial`, `reembolsado`.
+- Monto acordado en reunión.
+- Monto final pagado.
+- Nota de cambio de monto.
+- Comisión automática por lead pagado.
+- Confirmación de comisión pagada por admin.
+- Protección para que solo admin modifique pago, montos y confirmación.
 
 ## Configurar el frontend
 
@@ -147,7 +168,9 @@ http://localhost:5173/login.html
 - El agente solo ve información permitida por RLS: sus leads, reportes, comisiones, capacitación activa, documentos visibles y guiones activos.
 - El admin puede leer y escribir la operación completa.
 - Un lead no puede tener estado `Ganado` si `payment_confirmed` es falso.
-- Las comisiones se administran desde admin y se muestran al agente correspondiente.
+- Las comisiones se generan automáticamente cuando admin marca un lead como `pagado` y registra el monto final.
+- Admin confirma cuándo una comisión ya fue pagada al agente.
+- Los bonos se calculan por tramos de ventas pagadas: $1,500 en ventas o 4 ventas fuertes.
 - Los precios se muestran como referenciales y con texto “desde”.
 - La advertencia interna de precios solo se muestra en la vista admin.
 
