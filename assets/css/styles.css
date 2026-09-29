@@ -29,6 +29,7 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
+  overflow-x: hidden;
 }
 
 button,
@@ -168,6 +169,7 @@ textarea:focus {
   padding: 10px 14px;
   font-weight: 750;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .button.primary {
@@ -351,6 +353,10 @@ textarea:focus {
   margin-bottom: 22px;
 }
 
+.topbar > div {
+  min-width: 0;
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: var(--accent);
@@ -385,6 +391,7 @@ textarea:focus {
 .card,
 .form-panel {
   padding: 18px;
+  min-width: 0;
 }
 
 .card h2,
@@ -424,6 +431,10 @@ textarea:focus {
   gap: 16px;
 }
 
+.section-toolbar > div {
+  min-width: 0;
+}
+
 .section-toolbar h2 {
   margin: 0;
 }
@@ -461,6 +472,7 @@ textarea:focus {
   gap: 14px;
   overflow-x: auto;
   padding-bottom: 4px;
+  scroll-snap-type: x proximity;
 }
 
 .crm-column {
@@ -472,6 +484,7 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  scroll-snap-align: start;
 }
 
 .crm-column-header {
@@ -497,6 +510,7 @@ textarea:focus {
 .lead-card h3 {
   margin: 0;
   font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .lead-card p {
@@ -682,6 +696,7 @@ tr:last-child td {
   justify-content: space-between;
   gap: 12px;
   align-items: start;
+  min-width: 0;
 }
 
 .empty-state {
@@ -696,6 +711,25 @@ tr:last-child td {
 .mobile-menu-button,
 .bottom-nav {
   display: none;
+}
+
+@media (max-width: 1180px) {
+  .app-shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .brand-lockup.compact {
+    padding-inline: 12px;
+  }
+
+  .nav-list {
+    padding-inline: 10px;
+  }
+
+  .nav-item,
+  .bottom-nav-item {
+    padding-inline: 10px;
+  }
 }
 
 @media (max-width: 1040px) {
@@ -714,9 +748,22 @@ tr:last-child td {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
+  }
+
+  body.menu-open {
+    overflow: hidden;
+  }
+
+  body.menu-open::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 18;
+    background: rgba(0, 0, 0, 0.52);
+    backdrop-filter: blur(4px);
   }
 
   .sidebar {
@@ -735,7 +782,7 @@ tr:last-child td {
   }
 
   .content-shell {
-    padding: 20px 16px 92px;
+    padding: 18px 16px 96px;
   }
 
   .mobile-menu-button,
@@ -755,6 +802,7 @@ tr:last-child td {
     border-top: 1px solid var(--line);
     background: rgba(26, 26, 31, 0.96);
     backdrop-filter: blur(14px);
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .bottom-nav-item {
@@ -781,6 +829,7 @@ tr:last-child td {
 
   .crm-board {
     grid-template-columns: minmax(240px, 1fr);
+    overflow: visible;
   }
 
   .form-grid .wide,
@@ -792,7 +841,88 @@ tr:last-child td {
     align-items: start;
   }
 
+  .topbar h1 {
+    font-size: 1.55rem;
+  }
+
+  .actions {
+    align-items: stretch;
+  }
+
+  .actions .button,
+  .section-toolbar .button {
+    width: 100%;
+  }
+
+  .copy-row {
+    flex-direction: column;
+  }
+
+  .modal-backdrop {
+    padding: 12px;
+    place-items: stretch;
+  }
+
+  .modal-panel {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    padding: 16px;
+  }
+
+  .modal-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .auth-panel {
     padding: 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .login-page {
+    padding: 14px;
+  }
+
+  .content-shell {
+    padding-inline: 12px;
+  }
+
+  .card,
+  .form-panel {
+    padding: 14px;
+  }
+
+  .filters,
+  .form-grid {
+    gap: 11px;
+  }
+
+  .metric strong {
+    font-size: 1.45rem;
+  }
+
+  .pie-chart {
+    width: min(150px, 64vw);
+    justify-self: center;
+  }
+
+  table {
+    min-width: 680px;
+  }
+
+  th,
+  td {
+    padding: 10px;
+  }
+
+  .bottom-nav {
+    gap: 2px;
+    padding-inline: 4px;
+  }
+
+  .bottom-nav-item {
+    font-size: 0.72rem;
+    padding-inline: 3px;
   }
 }
