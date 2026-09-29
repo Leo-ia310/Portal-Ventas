@@ -250,12 +250,44 @@ textarea:focus {
   margin: 4px 0;
 }
 
-.nav-group > span {
-  padding: 10px 12px 4px;
+.nav-group-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 10px 12px 6px;
   color: var(--accent);
   font-size: 0.68rem;
   font-weight: 850;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.nav-group-toggle:hover {
+  background: var(--surface-2);
+}
+
+.nav-chevron {
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: transform 160ms ease;
+}
+
+.nav-group.collapsed .nav-chevron {
+  transform: rotate(-90deg);
+}
+
+.nav-group-items {
+  display: grid;
+  gap: 4px;
+}
+
+.nav-group.collapsed .nav-group-items {
+  display: none;
 }
 
 .nav-item.sub {
@@ -400,6 +432,7 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+  margin-top: 14px;
 }
 
 .form-grid {

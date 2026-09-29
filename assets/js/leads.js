@@ -43,15 +43,9 @@ function paint(container, state) {
   container.innerHTML = `
     <section class="card">
       <div class="section-toolbar">
-        <div>
-          <h2>Tablero CRM</h2>
-          <p class="muted">Filtra, revisa y avanza leads sin abrir formularios hasta que sea necesario.</p>
-        </div>
+        <h2>Filtros</h2>
         <button class="button primary" id="open-lead-modal" type="button">Crear lead</button>
       </div>
-    </section>
-
-    <section class="card">
       <form id="lead-filters" class="filters">
         <label class="wide">Buscar
           <input name="search" placeholder="Negocio, contacto o WhatsApp" />

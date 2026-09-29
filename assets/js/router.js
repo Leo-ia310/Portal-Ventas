@@ -72,6 +72,13 @@ function bindEvents() {
   navButtons.forEach((button) => {
     button.addEventListener("click", () => navigate(button.dataset.route));
   });
+  document.querySelectorAll("[data-nav-group-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const group = button.closest("[data-nav-group]");
+      const collapsed = group.classList.toggle("collapsed");
+      button.setAttribute("aria-expanded", String(!collapsed));
+    });
+  });
   document.querySelector("#logout-button").addEventListener("click", signOut);
   document.querySelector("#mobile-menu-button").addEventListener("click", () => {
     document.body.classList.toggle("menu-open");
