@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Iniciar sesión | MK Dev Studio</title>
+    <link rel="stylesheet" href="assets/css/styles.css" />
+  </head>
+  <body class="login-page">
+    <main class="auth-shell">
+      <section class="auth-panel">
+        <div class="brand-lockup">
+          <span class="brand-mark">MKD</span>
+          <div>
+            <strong>MK Dev Studio</strong>
+            <span>Portal interno</span>
+          </div>
+        </div>
+
+        <div class="auth-copy">
+          <h1>Acceso operativo</h1>
+          <p>Ingresa para gestionar leads, ventas, capacitación, reportes y comisiones.</p>
+        </div>
+
+        <form id="login-form" class="stack" autocomplete="on">
+          <label>
+            Correo
+            <input id="email" type="email" autocomplete="email" required placeholder="agente@mkdev.studio" />
+          </label>
+          <label>
+            Contraseña
+            <input id="password" type="password" autocomplete="current-password" required placeholder="Tu contraseña" />
+          </label>
+          <button id="login-button" class="button primary" type="submit">Iniciar sesión</button>
+          <p id="auth-message" class="form-message" role="status"></p>
+        </form>
+
+        <div id="setup-warning" class="setup-warning" hidden>
+          Falta configurar Supabase. Copia <strong>assets/js/config.example.js</strong> como
+          <strong>assets/js/config.js</strong> y coloca tu URL y anon key públicas.
+        </div>
+      </section>
+    </main>
+    <script type="module" src="assets/js/auth.js"></script>
+  </body>
+</html>

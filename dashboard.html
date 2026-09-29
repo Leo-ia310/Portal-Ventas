@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard | MK Dev Studio</title>
+    <link rel="stylesheet" href="assets/css/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegación principal">
+        <div class="brand-lockup compact">
+          <span class="brand-mark">MKD</span>
+          <div>
+            <strong>MK Dev Studio</strong>
+            <span id="role-label">Portal</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item active" data-route="dashboard" type="button">Dashboard</button>
+          <button class="nav-item" data-route="leads" type="button">Leads / CRM</button>
+          <button class="nav-item" data-route="ventas" type="button">Ventas</button>
+          <button class="nav-item" data-route="precios" type="button">Servicios y precios</button>
+          <button class="nav-item" data-route="training" type="button">Capacitación</button>
+          <button class="nav-item" data-route="scripts" type="button">Guiones</button>
+          <button class="nav-item" data-route="commissions" type="button">Comisiones</button>
+          <button class="nav-item" data-route="reports" type="button">Reportes</button>
+          <button class="nav-item" data-route="documents" type="button">Documentos</button>
+          <button class="nav-item admin-only" data-route="admin" type="button" hidden>Admin Maikel</button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="user-card">
+            <strong id="user-name">Cargando...</strong>
+            <span id="user-email"></span>
+          </div>
+          <button id="logout-button" class="button ghost" type="button">Cerrar sesión</button>
+        </div>
+      </aside>
+
+      <main class="content-shell">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="section-kicker">Operación comercial</p>
+            <h1 id="section-title">Dashboard</h1>
+          </div>
+          <button id="mobile-menu-button" class="button ghost mobile-menu-button" type="button">Menú</button>
+        </header>
+
+        <section id="system-message" class="system-message" hidden></section>
+        <section id="app" class="main-content" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Navegación móvil">
+      <button class="bottom-nav-item active" data-route="dashboard" type="button">Inicio</button>
+      <button class="bottom-nav-item" data-route="leads" type="button">Leads</button>
+      <button class="bottom-nav-item" data-route="training" type="button">Formación</button>
+      <button class="bottom-nav-item" data-route="commissions" type="button">Comisiones</button>
+      <button class="bottom-nav-item admin-only" data-route="admin" type="button" hidden>Admin</button>
+    </nav>
+
+    <script type="module" src="assets/js/router.js"></script>
+  </body>
+</html>
